@@ -171,16 +171,16 @@
 #define WIIMOTE_BUTTON_B           0x0004
 #define WIIMOTE_BUTTON_A           0x0008
 #define WIIMOTE_BUTTON_MINUS       0x0010
-#define WIIMOTE_BUTTON_ZACCEL_BIT6 0x0020
-#define WIIMOTE_BUTTON_ZACCEL_BIT7 0x0040
+#define WIIMOTE_BUTTON_YACCEL_LSB  0x0020 /**< accel Y's extra low bit; msg[1] bit 5. See WIIUSE_ACCEL_10BIT. */
+#define WIIMOTE_BUTTON_ZACCEL_LSB  0x0040 /**< accel Z's extra low bit; msg[1] bit 6. See WIIUSE_ACCEL_10BIT. */
 #define WIIMOTE_BUTTON_HOME        0x0080
 #define WIIMOTE_BUTTON_LEFT        0x0100
 #define WIIMOTE_BUTTON_RIGHT       0x0200
 #define WIIMOTE_BUTTON_DOWN        0x0400
 #define WIIMOTE_BUTTON_UP          0x0800
 #define WIIMOTE_BUTTON_PLUS        0x1000
-#define WIIMOTE_BUTTON_ZACCEL_BIT4 0x2000
-#define WIIMOTE_BUTTON_ZACCEL_BIT5 0x4000
+#define WIIMOTE_BUTTON_XACCEL_LSB0 0x2000 /**< accel X's extra low bit 0; msg[0] bit 5. See WIIUSE_ACCEL_10BIT. */
+#define WIIMOTE_BUTTON_XACCEL_LSB1 0x4000 /**< accel X's extra low bit 1; msg[0] bit 6. See WIIUSE_ACCEL_10BIT. */
 #define WIIMOTE_BUTTON_UNKNOWN     0x8000
 #define WIIMOTE_BUTTON_ALL         0x1F9F
 /** @} */
@@ -423,6 +423,75 @@ typedef struct vec3f_t
 } vec3f_t;
 
 /**
+ *	@brief Unsigned x,y,z 16-bit vector.
+ *
+ *	Used for the \c accel field on #wiimote_t, #wiimote_callback_data_t, and
+ *	#nunchuk_t. The field is always this width - a fixed uint8-to-uint16
+ *	widening that shipped once, unconditionally, regardless of whether
+ *	\c WIIUSE_ACCEL_10BIT is defined when the library is built. Whether the
+ *	field's *content* is the plain 8-bit reading or the hardware's full
+ *	extended precision depends on that macro:
+ *
+ *	- **\c WIIUSE_ACCEL_10BIT undefined (default):** each axis holds
+ *	  exactly the same 0-255 byte value wiiuse has always reported, just
+ *	  stored in a wider field. Numerically identical to the pre-widening
+ *	  behavior.
+ *	- **\c WIIUSE_ACCEL_10BIT defined:** each axis holds the accelerometer's
+ *	  full extended-precision reading - 10-bit X / 9-bit Y / 9-bit Z for the
+ *	  Wii Remote, full 10-bit X/Y/Z for the Nunchuk - decoded from otherwise
+ *	  unused bits in the Core Buttons / Nunchuk buttons bytes that the
+ *	  8-bit-only path never read.
+ *
+ *	\c WIIUSE_ACCEL_10BIT is a plain CMake option (\c WITH_ACCEL_10BIT,
+ *	default off), defined via \c add_definitions() the same way
+ *	\c WITH_BT_EMBEDDED already is - it is **not** propagated to
+ *	\c wiiuse.pc's \c Cflags. An application that wants to interpret the
+ *	widened field as extended precision must independently define
+ *	\c WIIUSE_ACCEL_10BIT when it builds; this isn't auto-detected or
+ *	negotiated with a prebuilt library, exactly the same rough edge
+ *	\c WITH_BT_EMBEDDED already has today. Since the field's type/size never
+ *	depends on the macro, a mismatch between how the library and an
+ *	application were built can misinterpret the value but can never corrupt
+ *	an adjacent struct field.
+ *
+ *	Provenance and caveats:
+ *	- The bit layout (which bits of which bytes carry the extra precision)
+ *	  was verified by reading Dolphin emulator source directly:
+ *	  \c Source/Core/Core/HW/WiimoteCommon/WiimoteReport.h and
+ *	  \c DataReport.cpp for the Wii Remote, and
+ *	  \c Source/Core/Core/HW/WiimoteEmu/Extension/Nunchuk.h for the Nunchuk.
+ *	  WiiBrew's wiki independently describes the same Wii Remote split, but
+ *	  was not read firsthand as part of this verification and is not cited
+ *	  as an independently-confirmed source.
+ *	- This decode does **not** apply to the Wii Remote's interleaved
+ *	  reporting mode (report IDs \c 0x3e/\c 0x3f); wiiuse never requests
+ *	  that mode, so this is not a live concern, but the extraction would
+ *	  misparse it if that mode were ever added.
+ *	- On third-party/clone hardware, these extra bits may hold
+ *	  uninitialized or noise data rather than a hardwired zero, since
+ *	  normal (non-extended) use never reads them. Treat extended-precision
+ *	  readings from non-genuine hardware with suspicion.
+ *	- \c calculate_orientation()/\c calculate_gforce()'s computed output
+ *	  (\c orient/\c gforce) reflects the accelerometer's full extended
+ *	  precision under this macro, instead of being silently narrowed back
+ *	  down to 8-bit-equivalent before calibration runs. With the flag off,
+ *	  or with the extra decoded bits all zero, output is bit-identical to
+ *	  before; with the flag on and the extra bits non-zero, output
+ *	  measurably diverges in the expected direction and magnitude.
+ *	- \c wiiuse_set_accel_threshold()/\c wiiuse_set_nunchuk_accel_threshold()
+ *	  keep roughly the same real-world sensitivity either way: the internal
+ *	  accel-change comparison rescales the threshold per axis to match
+ *	  each device/path's own decode shift (a no-op on the
+ *	  Motion+-Nunchuk-passthrough path, which never decodes extra
+ *	  precision). The public threshold value itself is unchanged - still a
+ *	  plain \c int at 8-bit-equivalent scale.
+ */
+typedef struct vec3w_t
+{
+    uint16_t x, y, z;
+} vec3w_t;
+
+/**
  *	@brief Orientation struct.
  *
  *	Yaw, pitch, and roll range from -180 to 180 degrees.
@@ -550,7 +619,7 @@ typedef struct nunchuk_t
     float orient_threshold; /**< threshold for orient to generate an event */
     int accel_threshold;    /**< threshold for accel to generate an event */
 
-    struct vec3b_t accel;   /**< current raw acceleration data			*/
+    struct vec3w_t accel;   /**< current raw acceleration data - see #vec3w_t for what this holds	*/
     struct orient_t orient; /**< current orientation on each axis		*/
     struct gforce_t gforce; /**< current gravity forces on each axis	*/
 } nunchuk_t;
@@ -689,7 +758,7 @@ typedef struct wiimote_state_t
     float exp_rjs_mag;
     uint16_t exp_btns;
     struct orient_t exp_orient;
-    struct vec3b_t exp_accel;
+    struct vec3w_t exp_accel;
     float exp_r_shoulder;
     float exp_l_shoulder;
 
@@ -712,7 +781,7 @@ typedef struct wiimote_state_t
     struct orient_t orient;
     uint16_t btns;
 
-    struct vec3b_t accel;
+    struct vec3w_t accel;
 } wiimote_state_t;
 
 /**
@@ -813,7 +882,7 @@ typedef struct wiimote_t
     struct accel_t accel_calib;  /**< wiimote accelerometer calibration		*/
     struct expansion_t exp;      /**< wiimote expansion device				*/
 
-    struct vec3b_t accel;   /**< current raw acceleration data			*/
+    struct vec3w_t accel;   /**< current raw acceleration data - see #vec3w_t for what this holds	*/
     struct orient_t orient; /**< current orientation on each axis		*/
     struct gforce_t gforce; /**< current gravity forces on each axis	*/
 
@@ -839,7 +908,7 @@ typedef struct wiimote_callback_data_t
     int uid;
     byte leds;
     float battery_level;
-    struct vec3b_t accel;
+    struct vec3w_t accel; /**< see #vec3w_t for what this holds */
     struct orient_t orient;
     struct gforce_t gforce;
     struct ir_t ir;

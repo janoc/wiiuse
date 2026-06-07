@@ -16,6 +16,53 @@ Original project (0.12 and earlier):
 
 
 
+Unreleased
+--------------------
+
+Changed:
+
+- **Breaking:** `wiimote_t.accel` and `wiimote_callback_data_t.accel` (and
+  the equivalent Nunchuk fields) are now `vec3w_t` (`uint16_t` per axis)
+  instead of `vec3b_t` (`uint8` per axis). This is unconditional and
+  affects every consumer's build, regardless of whether the new
+  `WITH_ACCEL_10BIT` option below is used. Existing code that reads
+  `accel.x/y/z` still compiles and, by default, still sees exactly the
+  same numeric byte value as before - just held in a wider type.
+
+Added:
+
+- New opt-in CMake option `WITH_ACCEL_10BIT` (off by default), which
+  defines the compile-time macro `WIIUSE_ACCEL_10BIT` for the library
+  build. When enabled, the Wii Remote's and Nunchuk's accelerometer
+  decode paths additionally extract the extra precision bits packed into
+  otherwise-unused report bytes, exposing the hardware's full 10-bit X /
+  9-bit Y / 9-bit Z (Wiimote) and 10-bit-per-axis (Nunchuk) accelerometer
+  readings via the widened `accel` field. Like `WITH_BT_EMBEDDED`, this
+  macro is not propagated via `wiiuse.pc`'s `Cflags`; a consumer must
+  independently define `WIIUSE_ACCEL_10BIT` when it builds to interpret
+  the widened field as extended precision. See
+  `ACCELEROMETER_PRECISION.md` for background.
+- The historically mislabeled `WIIMOTE_BUTTON_ZACCEL_BIT4/5/6/7` macros
+  (only 2 of the 4 actually related to the Z axis) are renamed to
+  `WIIMOTE_BUTTON_XACCEL_LSB0/LSB1/YACCEL_LSB/ZACCEL_LSB`, which
+  accurately describe what each bit represents. **Breaking** for any
+  code referencing the old names directly; no deprecated aliases are
+  kept.
+- When `WITH_ACCEL_10BIT` is enabled, the Wii Remote's and Nunchuk's
+  calibrated `gforce`/`orient` output reflects the accelerometer's full
+  extended precision instead of being silently narrowed back down to
+  8-bit-equivalent before calibration runs (the MotionPlus-Nunchuk-
+  passthrough path, which never decodes extra precision bits, is
+  unaffected either way). With the flag off, output is unchanged.
+- `wiiuse_set_accel_threshold()`/`wiiuse_set_nunchuk_accel_threshold()`
+  keep roughly the same real-world sensitivity whether or not
+  `WITH_ACCEL_10BIT` is enabled: the internal accel-change comparison now
+  rescales the threshold per axis to match each device/path's own decode
+  shift, instead of silently becoming more sensitive under the flag as it
+  did before. The public threshold value/units are unchanged - still a
+  plain `int` at 8-bit-equivalent scale.
+
+
 v0.15.7 -- 27-Feb-2026
 --------------------
 

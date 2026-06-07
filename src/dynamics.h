@@ -47,8 +47,50 @@ extern "C" {
 /** @defgroup internal_dynamics Internal: Dynamics Functions */
 /** @{ */
 
-void calculate_orientation(struct accel_t *ac, struct vec3b_t *accel, struct orient_t *orient, int smooth);
-void calculate_gforce(struct accel_t *ac, struct vec3b_t *accel, struct gforce_t *gforce);
+/*
+ *	Per-axis shift calculate_orientation()/calculate_gforce() apply to the
+ *	8-bit calibration data (accel_t.cal_zero/cal_g) to bring it up to the
+ *	same scale as the raw accel value they're compared against. Differs
+ *	per device: the Wiimote is a 10-bit X / 9-bit Y / 9-bit Z split, the
+ *	Nunchuk is a full 10 bits on every axis - matching each decode site
+ *	(handle_wm_accel(), nunchuk_event()).
+ *
+ *	Under WIIUSE_ACCEL_10BIT the raw accel value carries that full
+ *	precision, so the shift is the decode width above. Without it, raw
+ *	accel is still a plain 0-255 byte, so the shift collapses to 0 and
+ *	every caller below - calculate_orientation()/calculate_gforce() and
+ *	the accel_threshold comparison in events.c - reduces to its original
+ *	byte-only arithmetic.
+ */
+#ifdef WIIUSE_ACCEL_10BIT
+#define WIIMOTE_ACCEL_XSHIFT 2
+#define WIIMOTE_ACCEL_YSHIFT 1
+#define WIIMOTE_ACCEL_ZSHIFT 1
+
+#define NUNCHUK_ACCEL_XSHIFT 2
+#define NUNCHUK_ACCEL_YSHIFT 2
+#define NUNCHUK_ACCEL_ZSHIFT 2
+#else
+#define WIIMOTE_ACCEL_XSHIFT 0
+#define WIIMOTE_ACCEL_YSHIFT 0
+#define WIIMOTE_ACCEL_ZSHIFT 0
+
+#define NUNCHUK_ACCEL_XSHIFT 0
+#define NUNCHUK_ACCEL_YSHIFT 0
+#define NUNCHUK_ACCEL_ZSHIFT 0
+#endif
+
+/* The Motion+ Nunchuk-passthrough path (motion_plus.c) never decodes
+ * extra precision bits, so it must never be shifted either, regardless
+ * of WIIUSE_ACCEL_10BIT. */
+#define NUNCHUK_PASSTHROUGH_ACCEL_XSHIFT 0
+#define NUNCHUK_PASSTHROUGH_ACCEL_YSHIFT 0
+#define NUNCHUK_PASSTHROUGH_ACCEL_ZSHIFT 0
+
+void calculate_orientation(struct accel_t *ac, struct vec3w_t *accel, struct orient_t *orient, int smooth,
+                           int accel_xshift, int accel_yshift, int accel_zshift);
+void calculate_gforce(struct accel_t *ac, struct vec3w_t *accel, struct gforce_t *gforce, int accel_xshift,
+                      int accel_yshift, int accel_zshift);
 void calc_joystick_state(struct joystick_t *js, float x, float y);
 void apply_smoothing(struct accel_t *ac, struct orient_t *orient, int type);
 /** @} */

@@ -44,6 +44,15 @@
 
 #define MAX_WIIMOTES				4
 
+/* Whether this binary was built with -DWITH_ACCEL_10BIT=ON (see
+ * ACCELEROMETER_PRECISION.md); used below to label the raw accel values
+ * and to make it obvious which mode is running. */
+#ifdef WIIUSE_ACCEL_10BIT
+#define WIIUSE_ACCEL_10BIT_BUILD 1
+#else
+#define WIIUSE_ACCEL_10BIT_BUILD 0
+#endif
+
 
 /**
  *	@brief Callback that handles an event.
@@ -139,6 +148,15 @@ void handle_event(struct wiimote_t* wm) {
 
 	/* if the accelerometer is turned on then print angles */
 	if (WIIUSE_USING_ACC(wm)) {
+		/*
+		 *	calculate_orientation()/calculate_gforce() deliberately produce
+		 *	the same roll/pitch/yaw/gforce regardless of WIIUSE_ACCEL_10BIT,
+		 *	so those won't show any difference between an 8-bit and 10-bit
+		 *	build. The raw accel field is the one that does: 0-255 per axis
+		 *	in an 8-bit build, up to 1023 (X) / 511 (Y, Z) in a 10-bit one.
+		 */
+		printf("wiimote accel = %u, %u, %u%s\n", wm->accel.x, wm->accel.y, wm->accel.z,
+		       WIIUSE_ACCEL_10BIT_BUILD ? " (10/9/9-bit)" : " (8-bit)");
 		printf("wiimote roll  = %f [%f]\n", wm->orient.roll, wm->orient.a_roll);
 		printf("wiimote pitch = %f [%f]\n", wm->orient.pitch, wm->orient.a_pitch);
 		printf("wiimote yaw   = %f\n", wm->orient.yaw);
@@ -177,6 +195,12 @@ void handle_event(struct wiimote_t* wm) {
 			printf("Nunchuk: Z pressed\n");
 		}
 
+		/* Via Motion+ passthrough (EXP_MOTION_PLUS_NUNCHUK) this is always
+		 * the plain 8-bit-equivalent value, even in a 10-bit build - only
+		 * a directly-connected Nunchuk (EXP_NUNCHUK) gets the extra
+		 * precision. See NUNCHUK_PASSTHROUGH_ACCEL_XSHIFT in dynamics.h. */
+		printf("nunchuk accel = %u, %u, %u%s\n", nc->accel.x, nc->accel.y, nc->accel.z,
+		       (wm->exp.type == EXP_NUNCHUK && WIIUSE_ACCEL_10BIT_BUILD) ? " (10-bit)" : " (8-bit)");
 		printf("nunchuk roll  = %f\n", nc->orient.roll);
 		printf("nunchuk pitch = %f\n", nc->orient.pitch);
 		printf("nunchuk yaw   = %f\n", nc->orient.yaw);
@@ -483,6 +507,8 @@ int main(int argc, char** argv) {
 	wiiuse_rumble(wiimotes[0], 0);
 	wiiuse_rumble(wiimotes[1], 0);
 
+	printf("\nAccelerometer precision: %s\n",
+	       WIIUSE_ACCEL_10BIT_BUILD ? "10/9/9-bit extended (WITH_ACCEL_10BIT=ON)" : "8-bit (default)");
 	printf("\nControls:\n");
 	printf("\tB toggles rumble.\n");
 	printf("\t+ to start Wiimote accelerometer reporting, - to stop\n");

@@ -41,23 +41,46 @@
 #include <stdlib.h> /* for abs */
 
 /**
+ *	@brief Scale an 8-bit calibration point up to the raw accel value's
+ *	scale, per axis.
+ *
+ *	accel_xshift/yshift/zshift is 0 (a no-op) unless WIIUSE_ACCEL_10BIT is
+ *	defined, so this always matches the scale handle_wm_accel()/
+ *	nunchuk_event() decoded the raw value at - see dynamics.h.
+ */
+static void scale_calibration(struct vec3b_t *cal, int accel_xshift, int accel_yshift, int accel_zshift, int *cx,
+                              int *cy, int *cz)
+{
+    *cx = (int)cal->x << accel_xshift;
+    *cy = (int)cal->y << accel_yshift;
+    *cz = (int)cal->z << accel_zshift;
+}
+
+/**
  *	@brief Calculate the roll, pitch, yaw.
  *
  *	@param ac			An accelerometer (accel_t) structure.
- *	@param accel		[in] Pointer to a vec3b_t structure that holds the raw acceleration data.
+ *	@param accel		[in] Pointer to a vec3w_t structure that holds the raw acceleration data.
  *	@param orient		[out] Pointer to a orient_t structure that will hold the orientation data.
  *	@param rorient		[out] Pointer to a orient_t structure that will hold the non-smoothed
  *orientation data.
  *	@param smooth		If smoothing should be performed on the angles calculated. 1 to enable, 0 to
  *disable.
+ *	@param accel_xshift	[in] Per-axis WIIUSE_ACCEL_10BIT decode shift; see dynamics.h.
+ *	@param accel_yshift	[in] Per-axis WIIUSE_ACCEL_10BIT decode shift; see dynamics.h.
+ *	@param accel_zshift	[in] Per-axis WIIUSE_ACCEL_10BIT decode shift; see dynamics.h.
  *
  *	Given the raw acceleration data from the accelerometer struct, calculate
  *	the orientation of the device and set it in the \a orient parameter.
  */
-void calculate_orientation(struct accel_t *ac, struct vec3b_t *accel, struct orient_t *orient, int smooth)
+void calculate_orientation(struct accel_t *ac, struct vec3w_t *accel, struct orient_t *orient, int smooth,
+                           int accel_xshift, int accel_yshift, int accel_zshift)
 {
     float xg, yg, zg;
     float x, y, z;
+    int ax, ay, az;
+    int calzero_x, calzero_y, calzero_z;
+    int calg_x, calg_y, calg_z;
 
     /*
      *	roll	- use atan(z / x)		[ ranges from -180 to 180 ]
@@ -68,15 +91,22 @@ void calculate_orientation(struct accel_t *ac, struct vec3b_t *accel, struct ori
     /* yaw - set to 0, IR will take care of it if it's enabled */
     orient->yaw = 0.0f;
 
+    ax = (int)accel->x;
+    ay = (int)accel->y;
+    az = (int)accel->z;
+
+    scale_calibration(&ac->cal_zero, accel_xshift, accel_yshift, accel_zshift, &calzero_x, &calzero_y, &calzero_z);
+
     /* find out how much it has to move to be 1g */
-    xg = (float)ac->cal_g.x;
-    yg = (float)ac->cal_g.y;
-    zg = (float)ac->cal_g.z;
+    scale_calibration(&ac->cal_g, accel_xshift, accel_yshift, accel_zshift, &calg_x, &calg_y, &calg_z);
+    xg = (float)calg_x;
+    yg = (float)calg_y;
+    zg = (float)calg_z;
 
     /* find out how much it actually moved and normalize to +/- 1g */
-    x = ((float)accel->x - (float)ac->cal_zero.x) / xg;
-    y = ((float)accel->y - (float)ac->cal_zero.y) / yg;
-    z = ((float)accel->z - (float)ac->cal_zero.z) / zg;
+    x = ((float)ax - (float)calzero_x) / xg;
+    y = ((float)ay - (float)calzero_y) / yg;
+    z = ((float)az - (float)calzero_z) / zg;
 
     /* make sure x,y,z are between -1 and 1 for the tan functions */
     if (x < -1.0f)
@@ -106,7 +136,7 @@ void calculate_orientation(struct accel_t *ac, struct vec3b_t *accel, struct ori
     Formulas from: http://husstechlabs.com/projects/atb1/using-the-accelerometer/
 */
 
-    if (abs(accel->x - ac->cal_zero.x) <= ac->cal_g.x)
+    if (abs(ax - calzero_x) <= calg_x)
     {
         /* roll */
         float roll = RAD_TO_DEGREE(atan2f(x, z));
@@ -115,7 +145,7 @@ void calculate_orientation(struct accel_t *ac, struct vec3b_t *accel, struct ori
         orient->a_roll = roll;
     }
 
-    if (abs(accel->y - ac->cal_zero.y) <= ac->cal_g.y)
+    if (abs(ay - calzero_y) <= calg_y)
     {
         /* pitch */
         float pitch = RAD_TO_DEGREE(atan2f(y, sqrtf(x * x + z * z)));
@@ -136,22 +166,36 @@ void calculate_orientation(struct accel_t *ac, struct vec3b_t *accel, struct ori
  *	@brief Calculate the gravity forces on each axis.
  *
  *	@param ac			An accelerometer (accel_t) structure.
- *	@param accel		[in] Pointer to a vec3b_t structure that holds the raw acceleration data.
+ *	@param accel		[in] Pointer to a vec3w_t structure that holds the raw acceleration data.
  *	@param gforce		[out] Pointer to a gforce_t structure that will hold the gravity force data.
+ *	@param accel_xshift	[in] See calculate_orientation().
+ *	@param accel_yshift	[in] See calculate_orientation().
+ *	@param accel_zshift	[in] See calculate_orientation().
  */
-void calculate_gforce(struct accel_t *ac, struct vec3b_t *accel, struct gforce_t *gforce)
+void calculate_gforce(struct accel_t *ac, struct vec3w_t *accel, struct gforce_t *gforce, int accel_xshift,
+                      int accel_yshift, int accel_zshift)
 {
     float xg, yg, zg;
+    int ax, ay, az;
+    int calzero_x, calzero_y, calzero_z;
+    int calg_x, calg_y, calg_z;
+
+    ax = (int)accel->x;
+    ay = (int)accel->y;
+    az = (int)accel->z;
+
+    scale_calibration(&ac->cal_zero, accel_xshift, accel_yshift, accel_zshift, &calzero_x, &calzero_y, &calzero_z);
+    scale_calibration(&ac->cal_g, accel_xshift, accel_yshift, accel_zshift, &calg_x, &calg_y, &calg_z);
 
     /* find out how much it has to move to be 1g */
-    xg = (float)ac->cal_g.x;
-    yg = (float)ac->cal_g.y;
-    zg = (float)ac->cal_g.z;
+    xg = (float)calg_x;
+    yg = (float)calg_y;
+    zg = (float)calg_z;
 
     /* find out how much it actually moved and normalize to +/- 1g */
-    gforce->x = ((float)accel->x - (float)ac->cal_zero.x) / xg;
-    gforce->y = ((float)accel->y - (float)ac->cal_zero.y) / yg;
-    gforce->z = ((float)accel->z - (float)ac->cal_zero.z) / zg;
+    gforce->x = ((float)ax - (float)calzero_x) / xg;
+    gforce->y = ((float)ay - (float)calzero_y) / yg;
+    gforce->z = ((float)az - (float)calzero_z) / zg;
 }
 
 static float applyCalibration(float inval, float minval, float maxval, float centerval)
