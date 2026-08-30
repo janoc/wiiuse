@@ -45,9 +45,6 @@ void wiiuse_pressed_buttons(struct wiimote_t *wm, byte *msg);
 
 void handle_wm_accel(struct wiimote_t *wm, byte *msg);
 
-/* Test seam: exposed so tests can drive accel_threshold-crossing
- * decisions directly, matching the existing precedent for
- * handle_wm_accel() above. */
 int state_changed(struct wiimote_t *wm);
 
 void handshake_expansion(struct wiimote_t *wm, byte *data, uint16_t len);
