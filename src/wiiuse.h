@@ -100,11 +100,17 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN 1
 #endif
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0A00
+#endif
 #include <windows.h>
 #endif
 #ifdef WIIUSE_BLUEZ
 /* nix */
 #include <bluetooth/bluetooth.h>
+#endif
+#ifdef WIIUSE_BT_EMBEDDED
+#include <bt-embedded/l2cap.h>
 #endif
 
 #if defined(_MSC_VER) && _MSC_VER < 1700
@@ -760,6 +766,16 @@ typedef struct wiimote_t
     int out_sock;        /**< output socket							*/
     int in_sock;         /**< input socket 							*/
                                 /** @} */
+#endif
+
+#ifdef WIIUSE_BT_EMBEDDED
+    /** @name Members specific to the bt-embedded backend */
+    /** @{ */
+    BteBdAddr address;
+    BteL2cap *ctrl_channel;
+    BteL2cap *intr_channel;
+    BteBuffer *incoming_queue;
+    /** @} */
 #endif
 
 #ifdef WIIUSE_WIN32
