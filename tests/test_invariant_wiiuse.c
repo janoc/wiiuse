@@ -32,7 +32,7 @@ START_TEST(test_read_data_length_bounds)
     for (int i = 0; i < num_tests; i++) {
         unsigned short len = test_lens[i];
         /* wiiuse_read_data returns 0 on failure/invalid params, 1 on success */
-        int ret = wiiuse_read_data(wm[0], NULL, 0x0000, len);
+        int ret = wiiuse_read_data(wm[0], NULL, 0, 0x0000, len);
         if (len > WIIUSE_MAX_PAYLOAD) {
             /* Oversized requests must not succeed without bounds checking */
             ck_assert_msg(ret == 0,
